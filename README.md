@@ -1,3 +1,13 @@
+---
+title: Chaka Wap V2
+emoji: 🤖
+colorFrom: green
+colorTo: gray
+sdk: docker
+pinned: false
+app_port: 7860
+---
+
 # Chaka Wap V2
 
 A "Digital Twin" WhatsApp bot using `whatsapp-web.js`, Google Gemini 1.5, and Firebase Firestore.
