@@ -9,6 +9,8 @@ const fs = require('fs');
 const admin = require('firebase-admin');
 
 // --- 1. DNS & NETWORK FIX (THE ULTIMATE DO-OVER-HTTPS OPTION) ---
+// UDP Port 53 is blocked in Docker. Resolving 'dns.google' via UDP fails.
+// We hardcode 8.8.8.8 (Google DNS IP) which allows HTTPS DoH.
 const dns = require('dns');
 const https = require('https');
 
@@ -51,6 +53,7 @@ try {
                                 }
                             }
                         }
+                        // Fallback if no answer
                         console.error(">> DNS DoH: No Answer found, falling back.");
                         return originalLookup(hostname, options, callback);
                     } catch (e) {
@@ -127,9 +130,8 @@ async function connectToWhatsApp() {
 
     sock = makeWASocket({
         auth: state,
-        printQRInTerminal: true,
         logger: pino({ level: 'debug' }),
-        browser: ["Temple AI", "Chrome", "1.0"],
+        browser: ["Ubuntu", "Chrome", "20.0.04"], // Explicitly set standard browser
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 10000,
@@ -140,7 +142,8 @@ async function connectToWhatsApp() {
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        console.log(`>> Connection Update: ${JSON.stringify(update)}`);
+        // Log update keys for debugging
+        console.log(`>> Connection Update Keys: ${Object.keys(update).join(', ')}`);
 
         if (qr) {
             console.log(">> QR GENERATED");
