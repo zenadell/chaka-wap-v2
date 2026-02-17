@@ -8,12 +8,36 @@ const qrcode = require('qrcode');
 const fs = require('fs');
 const admin = require('firebase-admin');
 
-// --- 1. DNS & NETWORK FIX ---
+// --- 1. DNS & NETWORK FIX (THE NUCLEAR OPTION) ---
+// The Docker container's system DNS is failing to resolve web.whatsapp.com.
+// We override Node's internal DNS lookup to use Google's 8.8.8.8 explicitly.
 const dns = require('dns');
 try {
-    dns.setDefaultResultOrder('ipv4first');
+    // 1. Force use of Google DNS
+    dns.setServers(['8.8.8.8', '8.8.4.4']);
+
+    // 2. Override dns.lookup to use these servers (bypassing OS /etc/resolv.conf)
+    const originalLookup = dns.lookup;
+    dns.lookup = function (hostname, options, callback) {
+        if (typeof options === 'function') {
+            callback = options;
+            options = {};
+        }
+
+        // Try our custom resolver first
+        dns.resolve4(hostname, (err, addresses) => {
+            if (!err && addresses && addresses.length > 0) {
+                // Success! Return the first IPv4 address
+                // console.log(`>> DNS FIX: Resolved ${hostname} -> ${addresses[0]}`);
+                return callback(null, addresses[0], 4);
+            }
+            // Fallback to original system lookup if ours fails
+            return originalLookup(hostname, options, callback);
+        });
+    };
+    console.log(">> DNS: Active Override Enabled (Using 8.8.8.8)");
 } catch (e) {
-    console.log("DNS fix not supported in this Node version (skipping)");
+    console.error(">> DNS Fix failed:", e);
 }
 
 // --- 2. SERVER SETUP ---
