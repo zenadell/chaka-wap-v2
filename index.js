@@ -9,8 +9,6 @@ const fs = require('fs');
 const admin = require('firebase-admin');
 
 // --- 1. DNS & NETWORK FIX (THE ULTIMATE DO-OVER-HTTPS OPTION) ---
-// UDP Port 53 seems blocked or broken. We will use DNS-over-HTTPS (DoH).
-// This uses standard HTTPS (443) which is guaranteed to work.
 const dns = require('dns');
 const https = require('https');
 
@@ -18,29 +16,41 @@ try {
     const originalLookup = dns.lookup;
 
     dns.lookup = (hostname, options, callback) => {
+        // Argument polymorphism handling per Node.js docs
         if (typeof options === 'function') {
             callback = options;
             options = {};
+        } else if (typeof options === 'number') {
+            options = { family: options };
+        } else if (!options) {
+            options = {};
         }
 
-        // Only override for web.whatsapp.com to be safe, or local lookups
+        // Only override for web.whatsapp.com
         if (hostname === 'web.whatsapp.com') {
-            console.log(`>> DNS DoH: Resolving ${hostname} via Google HTTPS...`);
+            console.log(`>> DNS DoH: Resolving ${hostname} via 8.8.8.8 HTTPS... (Options: ${JSON.stringify(options)})`);
 
-            const req = https.get(`https://dns.google/resolve?name=${hostname}&type=A`, (res) => {
+            const req = https.get(`https://8.8.8.8/resolve?name=${hostname}&type=A`, {
+                servername: 'dns.google'
+            }, (res) => {
                 let data = '';
                 res.on('data', (chunk) => data += chunk);
                 res.on('end', () => {
                     try {
                         const json = JSON.parse(data);
                         if (json.Answer && json.Answer.length > 0) {
-                            const ip = json.Answer.find(rec => rec.type === 1)?.data; // Type 1 is A record
+                            const ip = json.Answer.find(rec => rec.type === 1)?.data;
                             if (ip) {
                                 console.log(`>> DNS DoH: Resolved ${hostname} -> ${ip}`);
-                                return callback(null, ip, 4);
+
+                                // FORMAT RESPONSE BASED ON OPTIONS
+                                if (options.all) {
+                                    return callback(null, [{ address: ip, family: 4 }]);
+                                } else {
+                                    return callback(null, ip, 4);
+                                }
                             }
                         }
-                        // Fallback if no answer
                         console.error(">> DNS DoH: No Answer found, falling back.");
                         return originalLookup(hostname, options, callback);
                     } catch (e) {
@@ -57,10 +67,9 @@ try {
             return;
         }
 
-        // Default behavior for everything else
         return originalLookup(hostname, options, callback);
     };
-    console.log(">> DNS: DoH Override Active (web.whatsapp.com only)");
+    console.log(">> DNS: DoH Override Active (8.8.8.8 Direct + Options Support)");
 } catch (e) {
     console.error(">> DNS Fix failed:", e);
 }
@@ -74,7 +83,6 @@ const io = socketIo(server, {
 });
 
 // --- CRITICAL CSP FIX ---
-// We explicitly set script-src to allow eval, and connect-src to allow WSS
 app.use((req, res, next) => {
     res.setHeader(
         "Content-Security-Policy",
@@ -120,11 +128,9 @@ async function connectToWhatsApp() {
     sock = makeWASocket({
         auth: state,
         printQRInTerminal: true,
-        // ENABLE DEBUG LOGS to see why it hangs
         logger: pino({ level: 'debug' }),
         browser: ["Temple AI", "Chrome", "1.0"],
         connectTimeoutMs: 60000,
-        // Fix for some network environments
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 10000,
         emitOwnEvents: true,
@@ -134,7 +140,6 @@ async function connectToWhatsApp() {
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        // Log everything for debugging
         console.log(`>> Connection Update: ${JSON.stringify(update)}`);
 
         if (qr) {
