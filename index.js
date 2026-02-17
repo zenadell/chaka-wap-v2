@@ -59,9 +59,13 @@ app.get('/api/check-key', async (req, res) => {
 
     try {
         const doc = await db.collection('settings').doc('config').get();
-        if (doc.exists && doc.data().apiKey) {
-            geminiKey = doc.data().apiKey;
-            return res.json({ exists: true });
+        if (doc.exists) {
+            const data = doc.data();
+            const key = data.apiKey || data.geminiApiKey; // Check both names
+            if (key) {
+                geminiKey = key;
+                return res.json({ exists: true });
+            }
         }
     } catch (e) { console.error(e); }
 
@@ -74,7 +78,12 @@ app.post('/api/save-key', async (req, res) => {
     if (!key) return res.status(400).json({ error: "No key provided" });
 
     try {
-        await db.collection('settings').doc('config').set({ apiKey: key }, { merge: true });
+        // Save to both names to ensure future compatibility
+        await db.collection('settings').doc('config').set({
+            apiKey: key,
+            geminiApiKey: key
+        }, { merge: true });
+
         geminiKey = key;
         res.json({ success: true });
     } catch (e) {
