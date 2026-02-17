@@ -8,34 +8,59 @@ const qrcode = require('qrcode');
 const fs = require('fs');
 const admin = require('firebase-admin');
 
-// --- 1. DNS & NETWORK FIX (THE NUCLEAR OPTION) ---
-// The Docker container's system DNS is failing to resolve web.whatsapp.com.
-// We override Node's internal DNS lookup to use Google's 8.8.8.8 explicitly.
+// --- 1. DNS & NETWORK FIX (THE ULTIMATE DO-OVER-HTTPS OPTION) ---
+// UDP Port 53 seems blocked or broken. We will use DNS-over-HTTPS (DoH).
+// This uses standard HTTPS (443) which is guaranteed to work.
 const dns = require('dns');
-try {
-    // 1. Force use of Google DNS
-    dns.setServers(['8.8.8.8', '8.8.4.4']);
+const https = require('https');
 
-    // 2. Override dns.lookup to use these servers (bypassing OS /etc/resolv.conf)
+try {
     const originalLookup = dns.lookup;
-    dns.lookup = function (hostname, options, callback) {
+
+    dns.lookup = (hostname, options, callback) => {
         if (typeof options === 'function') {
             callback = options;
             options = {};
         }
 
-        // Try our custom resolver first
-        dns.resolve4(hostname, (err, addresses) => {
-            if (!err && addresses && addresses.length > 0) {
-                // Success! Return the first IPv4 address
-                // console.log(`>> DNS FIX: Resolved ${hostname} -> ${addresses[0]}`);
-                return callback(null, addresses[0], 4);
-            }
-            // Fallback to original system lookup if ours fails
-            return originalLookup(hostname, options, callback);
-        });
+        // Only override for web.whatsapp.com to be safe, or local lookups
+        if (hostname === 'web.whatsapp.com') {
+            console.log(`>> DNS DoH: Resolving ${hostname} via Google HTTPS...`);
+
+            const req = https.get(`https://dns.google/resolve?name=${hostname}&type=A`, (res) => {
+                let data = '';
+                res.on('data', (chunk) => data += chunk);
+                res.on('end', () => {
+                    try {
+                        const json = JSON.parse(data);
+                        if (json.Answer && json.Answer.length > 0) {
+                            const ip = json.Answer.find(rec => rec.type === 1)?.data; // Type 1 is A record
+                            if (ip) {
+                                console.log(`>> DNS DoH: Resolved ${hostname} -> ${ip}`);
+                                return callback(null, ip, 4);
+                            }
+                        }
+                        // Fallback if no answer
+                        console.error(">> DNS DoH: No Answer found, falling back.");
+                        return originalLookup(hostname, options, callback);
+                    } catch (e) {
+                        console.error(">> DNS DoH Error parsing JSON:", e);
+                        return originalLookup(hostname, options, callback);
+                    }
+                });
+            });
+
+            req.on('error', (e) => {
+                console.error(">> DNS DoH Request Error:", e);
+                return originalLookup(hostname, options, callback);
+            });
+            return;
+        }
+
+        // Default behavior for everything else
+        return originalLookup(hostname, options, callback);
     };
-    console.log(">> DNS: Active Override Enabled (Using 8.8.8.8)");
+    console.log(">> DNS: DoH Override Active (web.whatsapp.com only)");
 } catch (e) {
     console.error(">> DNS Fix failed:", e);
 }
