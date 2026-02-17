@@ -1,23 +1,20 @@
-FROM node:20-bullseye-slim
+FROM node:18-bullseye-slim
 
-# Install system dependencies (Git is required for some npm packages)
-RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
-
-# Create App Directory
+# 1. Set working directory
 WORKDIR /app
 
-# Install dependencies
-COPY package*.json ./
+# 2. Copy package files and install dependencies
+COPY package.json ./
 RUN npm install
 
-# Copy source
+# 3. Copy the rest of the application
 COPY . .
 
-# Permissions (Fixes many permission errors)
-RUN chmod -R 777 /app
+# 4. Fix permissions for storage folders
+RUN mkdir -p /app/auth_info && chmod -R 777 /app/auth_info
 
-# Expose Port
+# 5. Open the correct port
 EXPOSE 7860
 
-# Start
+# 6. Start the bot
 CMD [ "node", "index.js" ]
