@@ -117,6 +117,16 @@
             document.getElementById('btn-crawl').innerText = `SYNCED ${syncCount} MSGS`;
         });
 
+        socket.on('sync_status', (data) => {
+            const logBox = document.getElementById('logs');
+            const newLine = document.createElement('div');
+            newLine.style.borderBottom = "1px solid #333";
+            newLine.style.padding = "5px";
+            newLine.style.color = "#ffaa00"; // Orange for status updates
+            newLine.innerText = `[SYSTEM] ⚙️ ${data.message}`;
+            logBox.prepend(newLine);
+        });
+
         socket.on('connect_error', (err) => {
             logDiv.innerText = "Socket Error: " + err.message;
         });
