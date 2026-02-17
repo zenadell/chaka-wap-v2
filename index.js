@@ -8,18 +8,12 @@ const qrcode = require('qrcode');
 const fs = require('fs');
 const admin = require('firebase-admin');
 
-// --- 1. DNS & NETWORK FIX (CRITICAL FOR HUGGING FACE) ---
-const dns = require('dns');
-dns.setDefaultResultOrder('ipv4first'); // Forces IPv4 to avoid timeouts
-
-// --- 2. SERVER SETUP ---
+// --- SERVER SETUP ---
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server, {
-    cors: { origin: "*", methods: ["GET", "POST"] }
-});
+const io = socketIo(server, { cors: { origin: "*" } });
 
-// Fix Content Security Policy (CSP) errors in frontend
+// --- SECURITY FIX (CRITICAL) ---
 app.use((req, res, next) => {
     res.setHeader("Content-Security-Policy", "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;");
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -29,8 +23,7 @@ app.use((req, res, next) => {
 app.use(express.static('public'));
 app.use(express.json());
 
-// --- 3. FIREBASE INIT ---
-let db;
+// --- FIREBASE (Skip if missing) ---
 try {
     let serviceAccount;
     if (process.env.FIREBASE_SERVICE_ACCOUNT) {
@@ -41,35 +34,28 @@ try {
         console.log("Firebase initialized from firebase-key.json file");
     }
 
-    admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
-    });
-    db = admin.firestore();
+    admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
     console.log(">> Firebase Connected");
 } catch (e) {
-    console.log(">> Firebase Key not found (Running in memory mode)");
+    console.log(">> Running without Database");
 }
 
-// --- 4. WHATSAPP LOGIC (BAILEYS) ---
-let sock;
-
+// --- WHATSAPP LOGIC ---
 async function connectToWhatsApp() {
-    console.log(">> Initializing Baileys...");
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
 
-    sock = makeWASocket({
+    const sock = makeWASocket({
         auth: state,
-        printQRInTerminal: true, // Look for QR in logs too!
+        printQRInTerminal: true,
         logger: pino({ level: 'silent' }),
-        browser: ["Temple AI", "Chrome", "1.0"],
-        connectTimeoutMs: 60000, // Give it time to connect
+        browser: ["Temple AI", "Chrome", "1.0"]
     });
 
-    sock.ev.on('connection.update', async (update) => {
+    sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
-            console.log(">> QR CODE RECEIVED");
+            console.log(">> QR GENERATED");
             qrcode.toDataURL(qr, (err, url) => {
                 if (!err) io.emit('qr', url);
             });
@@ -77,25 +63,24 @@ async function connectToWhatsApp() {
 
         if (connection === 'close') {
             const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('>> Connection Closed. Reconnecting:', shouldReconnect);
             if (shouldReconnect) connectToWhatsApp();
         } else if (connection === 'open') {
-            console.log('>> WHATSAPP CONNECTED SUCCESSFULLLY');
-            io.emit('ready', "Temple AI Connected!");
+            console.log(">> CONNECTED");
+            io.emit('ready', "System Online");
         }
     });
 
     sock.ev.on('creds.update', saveCreds);
 }
 
-// --- 5. API ENDPOINTS ---
+// --- API ---
 app.post('/api/start-bot', (req, res) => {
     connectToWhatsApp();
-    res.json({ message: "Starting..." });
+    res.json({ status: "Starting" });
 });
 
-app.get('/api/check-key', (req, res) => res.json({ exists: true })); // Bypass for now
+// Check Key Endpoint (Always true for now to bypass check)
+app.get('/api/check-key', (req, res) => res.json({ exists: true }));
 
-// Start Server
 const PORT = 7860;
-server.listen(PORT, () => console.log(`>> Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

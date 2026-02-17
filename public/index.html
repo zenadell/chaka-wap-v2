@@ -1,247 +1,64 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- Security Permission Slip -->
-    <meta http-equiv="Content-Security-Policy"
-        content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; script-src * 'unsafe-inline' 'unsafe-eval' data: blob:; img-src * data: blob:; connect-src * ws: wss:;">
-    <title>Temple AI // Control Center</title>
+    <title>Temple AI v2</title>
     <style>
-        :root {
-            --primary: #00ff88;
-            --bg: #0a0a0a;
-            --panel: #151515;
-            --text: #e0e0e0;
-        }
-
         body {
-            background: var(--bg);
-            color: var(--text);
-            font-family: 'Courier New', monospace;
+            background: #000;
+            color: #0f0;
+            font-family: monospace;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
             height: 100vh;
-            margin: 0;
         }
 
-        .container {
-            width: 400px;
-            background: var(--panel);
-            padding: 30px;
-            border: 1px solid #333;
-            box-shadow: 0 0 20px rgba(0, 255, 136, 0.1);
-            text-align: center;
-            border-radius: 8px;
-        }
-
-        h1 {
-            color: var(--primary);
-            margin-bottom: 5px;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            font-size: 1.5rem;
-        }
-
-        p.subtitle {
-            color: #666;
-            font-size: 0.8rem;
-            margin-bottom: 30px;
-        }
-
-        /* Sections */
-        .section {
+        img {
+            border: 5px solid #0f0;
+            margin: 20px;
             display: none;
-            animation: fadeIn 0.5s;
-        }
-
-        .active {
-            display: block;
-        }
-
-        /* Inputs & Buttons */
-        input {
-            width: 90%;
-            padding: 12px;
-            background: #000;
-            border: 1px solid #333;
-            color: var(--primary);
-            margin-bottom: 15px;
-            font-family: inherit;
         }
 
         button {
-            width: 100%;
-            padding: 15px;
-            background: var(--primary);
-            color: #000;
+            padding: 15px 30px;
+            font-size: 1.2rem;
+            background: #0f0;
             border: none;
-            font-weight: bold;
             cursor: pointer;
-            text-transform: uppercase;
-            transition: 0.2s;
-            margin-top: 10px;
-        }
-
-        button:hover {
-            background: #00cc6a;
-            box-shadow: 0 0 15px var(--primary);
-        }
-
-        button:disabled {
-            background: #333;
-            color: #666;
-            cursor: not-allowed;
-        }
-
-        /* QR Area */
-        #qr-display {
-            margin: 20px auto;
-            background: white;
-            padding: 10px;
-            display: inline-block;
-            border-radius: 4px;
-        }
-
-        #qr-display img {
-            display: block;
-            width: 200px;
-            height: 200px;
-        }
-
-        .status-log {
-            margin-top: 20px;
-            font-size: 0.75rem;
-            color: #888;
-            border-top: 1px solid #333;
-            padding-top: 10px;
-        }
-
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(10px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
         }
     </style>
 </head>
 
 <body>
-
-    <div class="container">
-        <h1>Temple AI</h1>
-        <p class="subtitle">AUTONOMOUS WHATSAPP AGENT</p>
-
-        <div id="section-loading" class="section active">
-            <p>Initializing System Protocols...</p>
-        </div>
-
-        <div id="section-key" class="section">
-            <p>ACCESS DENIED: API KEY REQUIRED</p>
-            <input type="password" id="api-key" placeholder="Enter Gemini API Key">
-            <button onclick="saveKey()">Save Credentials</button>
-        </div>
-
-        <div id="section-dashboard" class="section">
-            <p id="dash-status">SYSTEM READY. WAITING FOR LINK.</p>
-
-            <div id="qr-area" style="display:none;">
-                <div id="qr-display">
-                    <img id="qr-img" src="" alt="Waiting for QR...">
-                </div>
-                <p>Scan with WhatsApp (Linked Devices)</p>
-            </div>
-
-            <button id="btn-connect" onclick="startSystem()">GENERATE QR CODE</button>
-            <button id="btn-crawler" style="display:none; background: #ffaa00;">INITIATE DATA CRAWLER</button>
-        </div>
-
-        <div class="status-log" id="log">Status: Idle</div>
-    </div>
+    <h1>TEMPLE AI: BAILEYS PROTOCOL</h1>
+    <div id="status">Status: Idle</div>
+    <img id="qr" src="" width="300" height="300">
+    <button onclick="start()" id="btn">GENERATE QR CODE</button>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
         const socket = io();
-        const log = document.getElementById('log');
+        const status = document.getElementById('status');
+        const img = document.getElementById('qr');
+        const btn = document.getElementById('btn');
 
-        // --- INIT ---
-        window.onload = checkStatus;
-
-        async function checkStatus() {
-            log.innerText = "Status: Checking Database...";
-            try {
-                const res = await fetch('/api/check-key');
-                const data = await res.json();
-
-                document.getElementById('section-loading').classList.remove('active');
-
-                if (data.exists) {
-                    showSection('section-dashboard');
-                } else {
-                    showSection('section-key');
-                }
-            } catch (e) {
-                log.innerText = "Error: Could not reach server.";
-            }
+        function start() {
+            status.innerText = "Status: Requesting QR...";
+            btn.style.display = 'none';
+            fetch('/api/start-bot', { method: 'POST' });
         }
 
-        // --- ACTIONS ---
-        async function saveKey() {
-            const key = document.getElementById('api-key').value;
-            if (!key) return alert("Enter a key");
-
-            log.innerText = "Status: Saving Key...";
-            await fetch('/api/save-key', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ key })
-            });
-
-            // Reload to check status again
-            checkStatus();
-        }
-
-        async function startSystem() {
-            document.getElementById('btn-connect').disabled = true;
-            document.getElementById('btn-connect').innerText = "INITIALIZING ENGINE...";
-            document.getElementById('qr-area').style.display = 'block';
-            log.innerText = "Status: Booting Headless Browser...";
-
-            await fetch('/api/start-bot', { method: 'POST' });
-        }
-
-        function showSection(id) {
-            document.querySelectorAll('.section').forEach(el => el.classList.remove('active'));
-            document.getElementById(id).classList.add('active');
-        }
-
-        // --- SOCKET EVENTS ---
         socket.on('qr', (url) => {
-            document.getElementById('qr-img').src = url;
-            document.getElementById('btn-connect').style.display = 'none'; // Hide button once QR shows
-            log.innerText = "Status: QR Code Received. Scan Now.";
+            status.innerText = "Status: SCAN NOW";
+            img.src = url;
+            img.style.display = 'block';
         });
 
         socket.on('ready', (msg) => {
-            document.getElementById('qr-area').style.display = 'none';
-            document.getElementById('dash-status').innerText = ">> " + msg;
-            document.getElementById('dash-status').style.color = "#00ff88";
-            document.getElementById('btn-connect').style.display = 'none';
-            document.getElementById('btn-crawler').style.display = 'block';
-            log.innerText = "Status: Connected.";
-        });
-
-        document.getElementById('btn-crawler').addEventListener('click', async () => {
-            log.innerText = "Status: Initiating Crawler...";
-            await fetch('/api/crawl', { method: 'POST' });
-            log.innerText = "Status: Crawler Started. Check logs/DB.";
+            status.innerText = ">> SUCCESS: " + msg;
+            img.style.display = 'none';
         });
     </script>
 </body>
