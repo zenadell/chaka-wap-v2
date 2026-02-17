@@ -5,7 +5,16 @@ const http = require('http');
 const socketIo = require('socket.io');
 const admin = require('firebase-admin');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const fs = require('fs');
+const dns = require('dns');
+
+// --- DNS DIAGNOSTIC ---
+console.log("--- SYSTEM NETWORK CHECK ---");
+dns.lookup('web.whatsapp.com', (err, address) => {
+    console.log(`DNS Lookup (web.whatsapp.com): ${err ? "FAILED - " + err.message : "SUCCESS - " + address}`);
+});
+dns.lookup('google.com', (err, address) => {
+    console.log(`DNS Lookup (google.com): ${err ? "FAILED - " + err.message : "SUCCESS - " + address}`);
+});
 
 // --- CONFIGURATION ---
 const app = express();
@@ -27,8 +36,7 @@ try {
         credential: admin.credential.cert(serviceAccount)
     });
 } catch (error) {
-    console.error("CRITICAL: Failed to initialize Firebase. Check your FIREBASE_SERVICE_ACCOUNT variable or firebase-key.json file.");
-    console.error(error);
+    console.error("CRITICAL: Failed to initialize Firebase.");
 }
 const db = admin.firestore();
 
@@ -36,7 +44,17 @@ const db = admin.firestore();
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        headless: true,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--single-process',
+            '--disable-gpu'
+        ],
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH
     }
 });
