@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Temple AI - Admin</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background: #111;
+            color: #0f0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+            text-transform: uppercase;
+            letter-spacing: 5px;
+        }
+
+        #qr-container {
+            background: white;
+            padding: 20px;
+            display: none;
+        }
+
+        #status {
+            margin-top: 20px;
+            font-size: 1.2rem;
+        }
+
+        button {
+            background: #0f0;
+            color: #000;
+            border: none;
+            padding: 15px 30px;
+            font-size: 1rem;
+            cursor: pointer;
+            margin-top: 20px;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background: #0a0;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Temple AI Protocol</h1>
+
+    <div id="settings-container"
+        style="background: #222; padding: 20px; margin-bottom: 20px; text-align: left; width: 300px;">
+        <h3 style="margin-top: 0;">Settings</h3>
+        <label for="api-key" style="display: block; margin-bottom: 5px;">Gemini API Key:</label>
+        <input type="password" id="api-key" placeholder="Paste your API Key"
+            style="width: 100%; padding: 8px; margin-bottom: 10px; background: #000; color: #fff; border: 1px solid #0f0;">
+        <button id="save-key-btn" style="width: 100%; padding: 10px; margin-top: 0;">SAVE KEY</button>
+        <div id="key-status" style="margin-top: 10px; font-size: 0.8rem; color: #888;">Checking key status...</div>
+    </div>
+
+    <div id="qr-container">
+        <img id="qr-code" src="" alt="Scan QR" width="300">
+    </div>
+
+    <div id="status">Waiting for system init...</div>
+
+    <button id="crawl-btn" style="display:none;">INITIATE CRAWLER (SCRAPE DATA)</button>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const qrContainer = document.getElementById('qr-container');
+        const qrImg = document.getElementById('qr-code');
+        const status = document.getElementById('status');
+        const crawlBtn = document.getElementById('crawl-btn');
+        const saveKeyBtn = document.getElementById('save-key-btn');
+        const apiKeyInput = document.getElementById('api-key');
+        const keyStatus = document.getElementById('key-status');
+
+        // Check if key exists
+        fetch('/api/config').then(res => res.json()).then(data => {
+            if (data.hasApiKey) {
+                keyStatus.innerText = "Current Status: KEY ACTIVE (Saved in Database)";
+                keyStatus.style.color = "#0f0";
+                apiKeyInput.placeholder = "Key is set. Enter new one to overwrite.";
+            } else {
+                keyStatus.innerText = "Current Status: NO KEY DETECTED";
+                keyStatus.style.color = "red";
+            }
+        });
+
+        saveKeyBtn.addEventListener('click', async () => {
+            const apiKey = apiKeyInput.value.trim();
+            if (!apiKey) return alert("Please enter a key");
+
+            saveKeyBtn.innerText = "SAVING...";
+            await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ apiKey })
+            });
+            saveKeyBtn.innerText = "SAVE KEY";
+            keyStatus.innerText = "KEY SAVED SUCCESSFULLY";
+            keyStatus.style.color = "#0f0";
+            apiKeyInput.value = "";
+        });
+
+        socket.on('qr', (url) => {
+            qrContainer.style.display = 'block';
+            qrImg.src = url;
+            status.innerText = "Scan this code with WhatsApp to link Temple AI.";
+        });
+
+        socket.on('ready', (msg) => {
+            qrContainer.style.display = 'none';
+            status.innerText = ">> SYSTEM ONLINE: " + msg;
+            crawlBtn.style.display = 'block';
+        });
+
+        crawlBtn.addEventListener('click', async () => {
+            status.innerText = ">> CRAWLING DATA... PLEASE WAIT...";
+            await fetch('/api/crawl', { method: 'POST' });
+        });
+    </script>
+</body>
+
+</html>
