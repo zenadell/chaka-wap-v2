@@ -22,11 +22,11 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
 
-// --- CSP MIDDLEWARE ---
+// --- CSP MIDDLEWARE (The "Nuclear" Option for Debugging) ---
 app.use((req, res, next) => {
     res.setHeader(
         "Content-Security-Policy",
-        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:;"
+        "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; script-src * 'unsafe-inline' 'unsafe-eval' data: blob:; style-src * 'unsafe-inline'; img-src * data: blob:; connect-src * ws: wss:;"
     );
     next();
 });
