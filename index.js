@@ -215,5 +215,8 @@ server.listen(PORT, () => {
 
     // Start WhatsApp Client
     console.log("Initializing WhatsApp Client...");
-    client.initialize();
+    client.initialize().catch(err => {
+        console.error("CRITICAL ERROR: WhatsApp Client failed to initialize!");
+        console.error(err);
+    });
 });
