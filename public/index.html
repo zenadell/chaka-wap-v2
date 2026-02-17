@@ -47,6 +47,12 @@
     <div id="status">Status: Idle</div>
     <img id="qr" src="" width="300" height="300">
     <button onclick="start()" id="btn">GENERATE QR CODE</button>
+
+    <!-- SYNC BUTTON -->
+    <button id="btn-crawl" style="display:none; background: #ffaa00; margin-top: 20px;" onclick="startCrawl()">
+        SYNC CHAT HISTORY
+    </button>
+
     <div id="logs">Waiting for server logs...</div>
 
     <script src="/socket.io/socket.io.js"></script>
@@ -78,7 +84,14 @@
         socket.on('ready', (msg) => {
             status.innerText = ">> SUCCESS: " + msg;
             img.style.display = 'none';
+            document.getElementById('btn-crawl').style.display = 'block'; // Show Sync Button
         });
+
+        async function startCrawl() {
+            document.getElementById('btn-crawl').innerText = "SYNCING...";
+            await fetch('/api/crawl', { method: 'POST' });
+            alert("Passive Sync Started! Check console logs.");
+        }
 
         socket.on('connect_error', (err) => {
             logDiv.innerText = "Socket Error: " + err.message;

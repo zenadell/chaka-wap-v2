@@ -7,6 +7,39 @@ const socketIo = require('socket.io');
 const qrcode = require('qrcode');
 const fs = require('fs');
 const admin = require('firebase-admin');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+
+// --- AI STATE ---
+let model = null;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "YOUR_FALLBACK_KEY"; // Ideally fetch from Firebase
+
+function initAI() {
+    try {
+        if (!GEMINI_API_KEY || GEMINI_API_KEY === "YOUR_FALLBACK_KEY") {
+            console.log(">> AI Init Skipped (No Key)");
+            return;
+        }
+        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+        model = genAI.getGenerativeModel({
+            model: "gemini-pro",
+            systemInstruction: "You are Temple, a witty and helpful AI assistant living in WhatsApp. Keep replies concise and engaging."
+        });
+        console.log(">> AI Initialized");
+    } catch (e) {
+        console.error(">> AI Init Failed:", e);
+    }
+}
+
+async function generateResponse(prompt) {
+    if (!model) return "I am currently offline (AI disabled).";
+    try {
+        const result = await model.generateContent(prompt);
+        return result.response.text();
+    } catch (e) {
+        console.error("AI Generation Error:", e);
+        return "My brain hurts... try again later.";
+    }
+}
 
 // --- 1. DNS & NETWORK FIX (THE ULTIMATE DO-OVER-HTTPS OPTION) ---
 // UDP Port 53 is blocked in Docker. Resolving 'dns.google' via UDP fails.
@@ -139,6 +172,56 @@ async function connectToWhatsApp() {
         retryRequestDelayMs: 250
     });
 
+    initAI(); // Initialize AI on bot start
+
+
+    sock.ev.on('messages.upsert', async ({ messages, type }) => {
+        try {
+            // type === 'notify' means new message. 'append' means history sync.
+            // We capture BOTH to build the "Digital Soul" database.
+
+            for (const msg of messages) {
+                if (!msg.message) continue;
+
+                const jid = msg.key.remoteJid;
+                const isMe = msg.key.fromMe;
+                const senderName = msg.pushName || (isMe ? "Temple" : "Unknown");
+
+                // Extract text (Handling different message types)
+                const text = msg.message.conversation ||
+                    msg.message.extendedTextMessage?.text ||
+                    msg.message.imageMessage?.caption || "";
+
+                if (!text) continue; // Skip stickers/audio for now (Phase 3)
+
+                // FIREBASE SAVE STRUCTURE
+                // Collection: chats -> Doc: UserID -> Collection: messages -> Doc: MsgID
+                if (db) {
+                    const chatRef = db.collection('chats').doc(jid);
+
+                    await chatRef.set({
+                        lastActive: new Date(),
+                        id: jid
+                    }, { merge: true });
+
+                    await chatRef.collection('messages').doc(msg.key.id).set({
+                        text: text,
+                        sender: isMe ? "Temple" : senderName,
+                        fromMe: isMe,
+                        timestamp: new Date((msg.messageTimestamp || Date.now() / 1000) * 1000),
+                        type: Object.keys(msg.message)[0]
+                    });
+
+                    console.log(`>> SAVED: ${senderName}: ${text.substring(0, 20)}...`);
+                } else {
+                    console.log(`>> (No DB) MSG: ${senderName}: ${text.substring(0, 20)}...`);
+                }
+            }
+        } catch (e) {
+            console.error("Save Error:", e);
+        }
+    });
+
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
 
@@ -179,6 +262,14 @@ app.post('/api/start-bot', (req, res) => {
     }
     connectToWhatsApp();
     res.json({ message: "Starting..." });
+});
+
+// --- NEW CRAWLER ENDPOINT ---
+app.post('/api/crawl', async (req, res) => {
+    if (!sock) return res.status(500).json({ error: "WhatsApp not connected" });
+    console.log(">> STARTING FULL DATA SYNC (Passive Mode Active)...");
+    res.json({ message: "Syncing started! Messages are being saved as they arrive." });
+    // In passive mode, we just rely on the 'messages.upsert' listener we already added.
 });
 
 app.get('/api/check-key', (req, res) => res.json({ exists: true }));
