@@ -212,4 +212,8 @@ app.post('/api/crawl', async (req, res) => {
 const PORT = 7860; // Hugging Face default port
 server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+
+    // Start WhatsApp Client
+    console.log("Initializing WhatsApp Client...");
+    client.initialize();
 });
