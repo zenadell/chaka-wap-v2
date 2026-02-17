@@ -131,7 +131,7 @@ async function connectToWhatsApp() {
     sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'debug' }),
-        browser: ["Ubuntu", "Chrome", "20.0.04"], // Explicitly set standard browser
+        // browser: Baileys Default,
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 10000,
