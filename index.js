@@ -1,4 +1,5 @@
 const { makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+require('dotenv').config();
 const { Boom } = require('@hapi/boom');
 const pino = require('pino');
 const express = require('express');
@@ -11,15 +12,36 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // --- AI STATE ---
 let model = null;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "YOUR_FALLBACK_KEY"; // Ideally fetch from Firebase
+let API_KEYS = [];
+let currentKeyIndex = 0;
+
+// --- DATABASE FUNCTIONS ---
+async function loadKeys() {
+    if (!db) return console.log(">> No DB, skipping key load.");
+    try {
+        const snapshot = await db.collection('api_keys').get();
+        if (snapshot.empty) {
+            console.log(">> No API Keys in DB (Using Fallback)");
+            initAI();
+            return;
+        }
+        API_KEYS = [];
+        snapshot.forEach(doc => API_KEYS.push(doc.data().key));
+        console.log(`>> [FIREBASE] Loaded ${API_KEYS.length} keys.`);
+        initAI(); // Re-init AI with new keys
+    } catch (e) {
+        console.log(">> Key Load Error:", e);
+    }
+}
 
 function initAI() {
     try {
-        if (!GEMINI_API_KEY || GEMINI_API_KEY === "YOUR_FALLBACK_KEY") {
-            console.log(">> AI Init Skipped (No Key)");
+        const key = API_KEYS[currentKeyIndex] || process.env.GEMINI_API_KEY;
+        if (!key || key === "YOUR_FALLBACK_KEY") {
+            console.log(">> AI Init Skipped (No Key Found)");
             return;
         }
-        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+        const genAI = new GoogleGenerativeAI(key);
         model = genAI.getGenerativeModel({
             model: "gemini-pro",
             systemInstruction: "You are Temple, a witty and helpful AI assistant living in WhatsApp. Keep replies concise and engaging."
@@ -135,6 +157,7 @@ app.use(express.static('public'));
 app.use(express.json());
 
 // --- 3. FIREBASE INIT ---
+// --- 3. FIREBASE INIT ---
 try {
     let serviceAccount;
     if (process.env.FIREBASE_SERVICE_ACCOUNT) {
@@ -143,13 +166,18 @@ try {
         serviceAccount = require('./firebase-key.json');
     }
     admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+    db = admin.firestore();
     console.log(">> Firebase Connected");
+    loadKeys();
 } catch (e) {
     console.log(">> Running without Database (No Firebase Key found)");
 }
 
 // --- 4. WHATSAPP LOGIC (BAILEYS) ---
 let sock;
+let statusMsg = "Booting...";
+let qrImage = null;
+let connectionState = "IDLE";
 
 async function connectToWhatsApp() {
     console.log(">> Initializing Baileys (Debug Mode)...");
@@ -213,8 +241,21 @@ async function connectToWhatsApp() {
                     });
 
                     console.log(`>> SAVED: ${senderName}: ${text.substring(0, 20)}...`);
+
+                    // --- REAL-TIME FRONTEND LOGGING ---
+                    io.emit('sync_log', {
+                        sender: senderName,
+                        text: text.substring(0, 50),
+                        count: 1 // We can iterate this on client side or keep a global server counter
+                    });
+
                 } else {
                     console.log(`>> (No DB) MSG: ${senderName}: ${text.substring(0, 20)}...`);
+                    io.emit('sync_log', {
+                        sender: senderName,
+                        text: text.substring(0, 50) + " (No DB)",
+                        count: 0
+                    });
                 }
             }
         } catch (e) {
@@ -273,6 +314,14 @@ app.post('/api/crawl', async (req, res) => {
 });
 
 app.get('/api/check-key', (req, res) => res.json({ exists: true }));
+
+app.get('/api/status', (req, res) => res.json({
+    bot: {
+        status: statusMsg || "System Online",
+        qr: qrImage,
+        state: connectionState || "CONNECTED" // Default to connected if verified
+    }
+}));
 
 const PORT = 7860;
 server.listen(PORT, () => console.log(`>> Server running on port ${PORT}`));

@@ -36,8 +36,17 @@
             font-size: 0.8rem;
             color: #666;
             margin-top: 20px;
-            text-align: center;
+            margin-top: 20px;
+            text-align: left;
             white-space: pre-wrap;
+            width: 80%;
+            height: 300px;
+            overflow-y: scroll;
+            background: #111;
+            padding: 10px;
+            border: 1px solid #0f0;
+            display: none;
+            /* Hidden until sync starts */
         }
     </style>
 </head>
@@ -88,10 +97,25 @@
         });
 
         async function startCrawl() {
-            document.getElementById('btn-crawl').innerText = "SYNCING...";
+            document.getElementById('btn-crawl').innerText = "LISTENING FOR HISTORY...";
+            document.getElementById('btn-crawl').disabled = true;
+            document.getElementById('logs').style.display = 'block';
             await fetch('/api/crawl', { method: 'POST' });
-            alert("Passive Sync Started! Check console logs.");
         }
+
+        let syncCount = 0;
+        socket.on('sync_log', (data) => {
+            syncCount++;
+            const logBox = document.getElementById('logs');
+            const newLine = document.createElement('div');
+            newLine.style.borderBottom = "1px solid #333";
+            newLine.style.padding = "5px";
+            newLine.innerText = `[${syncCount}] 💾 ${data.sender}: ${data.text}`;
+            logBox.prepend(newLine); // Newest on top
+
+            // Update button status
+            document.getElementById('btn-crawl').innerText = `SYNCED ${syncCount} MSGS`;
+        });
 
         socket.on('connect_error', (err) => {
             logDiv.innerText = "Socket Error: " + err.message;
