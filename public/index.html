@@ -3,6 +3,9 @@
 
 <head>
     <title>Temple AI v2</title>
+    <!-- Fallback Security Permission Slip -->
+    <meta http-equiv="Content-Security-Policy"
+        content="default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; script-src * data: blob: 'unsafe-inline' 'unsafe-eval'; connect-src * wss: ws:; img-src * data: blob:;">
     <style>
         body {
             background: #000;
@@ -28,6 +31,14 @@
             border: none;
             cursor: pointer;
         }
+
+        #logs {
+            font-size: 0.8rem;
+            color: #666;
+            margin-top: 20px;
+            text-align: center;
+            white-space: pre-wrap;
+        }
     </style>
 </head>
 
@@ -36,29 +47,41 @@
     <div id="status">Status: Idle</div>
     <img id="qr" src="" width="300" height="300">
     <button onclick="start()" id="btn">GENERATE QR CODE</button>
+    <div id="logs">Waiting for server logs...</div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        const socket = io();
+        const socket = io({
+            transports: ['websocket', 'polling']
+        });
         const status = document.getElementById('status');
         const img = document.getElementById('qr');
         const btn = document.getElementById('btn');
+        const logDiv = document.getElementById('logs');
 
         function start() {
             status.innerText = "Status: Requesting QR...";
             btn.style.display = 'none';
-            fetch('/api/start-bot', { method: 'POST' });
+            fetch('/api/start-bot', { method: 'POST' })
+                .then(res => res.json())
+                .then(data => logDiv.innerText = "Server response: " + JSON.stringify(data))
+                .catch(err => logDiv.innerText = "Error requesting bot: " + err);
         }
 
         socket.on('qr', (url) => {
             status.innerText = "Status: SCAN NOW";
             img.src = url;
             img.style.display = 'block';
+            logDiv.innerText = "QR Code Received from Socket!";
         });
 
         socket.on('ready', (msg) => {
             status.innerText = ">> SUCCESS: " + msg;
             img.style.display = 'none';
+        });
+
+        socket.on('connect_error', (err) => {
+            logDiv.innerText = "Socket Error: " + err.message;
         });
     </script>
 </body>
