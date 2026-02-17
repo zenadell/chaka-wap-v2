@@ -1,20 +1,31 @@
 FROM node:18-bullseye-slim
 
-# 1. Set working directory
+# 1. Install Git and Build Tools (CRITICAL FIX)
+# We add python3, make, and g++ in case any packages need to compile native code
+RUN apt-get update && apt-get install -y \
+    git \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Set working directory
 WORKDIR /app
 
-# 2. Copy package files and install dependencies
+# 3. Copy package files first (better caching)
 COPY package.json ./
+
+# 4. Install dependencies (Now Git is available!)
 RUN npm install
 
-# 3. Copy the rest of the application
+# 5. Copy the rest of the application
 COPY . .
 
-# 4. Fix permissions for storage folders
+# 6. Fix permissions for storage folders
 RUN mkdir -p /app/auth_info && chmod -R 777 /app/auth_info
 
-# 5. Open the correct port
+# 7. Open the correct port
 EXPOSE 7860
 
-# 6. Start the bot
+# 8. Start the bot
 CMD [ "node", "index.js" ]
