@@ -22,6 +22,15 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
 
+// --- CSP MIDDLEWARE ---
+app.use((req, res, next) => {
+    res.setHeader(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:;"
+    );
+    next();
+});
+
 // Global State
 let db;
 let qrCodeUrl = null;
