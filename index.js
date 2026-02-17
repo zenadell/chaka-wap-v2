@@ -42,7 +42,7 @@ const db = admin.firestore();
 
 // Initialize WhatsApp Client with Puppeteer settings for Docker
 const client = new Client({
-    authStrategy: new LocalAuth(),
+    authStrategy: new LocalAuth({ dataPath: '/app/auth_info' }),
     puppeteer: {
         headless: true,
         args: [
@@ -52,8 +52,9 @@ const client = new Client({
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
-            '--single-process',
-            '--disable-gpu'
+            '--disable-gpu',
+            '--dns-server=8.8.8.8',  // <--- CRITICAL FIX 1: Force Google DNS
+            '--disable-ipv6'         // <--- CRITICAL FIX 2: Stop IPv6 errors
         ],
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH
     }
