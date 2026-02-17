@@ -1,17 +1,22 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode');
+const { makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { Boom } = require('@hapi/boom');
+const pino = require('pino');
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
+const qrcode = require('qrcode');
+const fs = require('fs');
 const admin = require('firebase-admin');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-// --- CONFIGURATION ---
+// --- SETUP SERVER ---
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server);
+const io = socketIo(server, {
+    cors: { origin: "*" } // Allow all connections
+});
 
-// --- FIX 1: SECURITY HEADERS (Solves "Content Security Policy" Error) ---
+// Fix Security/CSP Issues
 app.use((req, res, next) => {
     res.setHeader("Content-Security-Policy", "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;");
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -21,7 +26,7 @@ app.use((req, res, next) => {
 app.use(express.static('public'));
 app.use(express.json());
 
-// Initialize Firebase
+// --- FIREBASE (Keep your existing logic) ---
 let db;
 try {
     let serviceAccount;
@@ -33,43 +38,46 @@ try {
         console.log("Firebase initialized from firebase-key.json file");
     }
 
-    admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
-    });
+    admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
     db = admin.firestore();
-    console.log("Firebase Initialized");
+    console.log("Firebase Connected");
 } catch (e) {
-    console.error("Firebase Key Missing! Upload firebase-key.json or set FIREBASE_SERVICE_ACCOUNT env var.");
+    console.log("Firebase Key not found (Running in no-db mode)");
 }
 
-// Global State
-let qrCodeUrl = null;
-let isClientReady = false;
+// --- GLOBAL STATE ---
+let sock;
 let geminiKey = null;
-let whatsappClient = null;
 
 // --- API ENDPOINTS ---
 app.get('/api/check-key', async (req, res) => {
     if (geminiKey) return res.json({ exists: true });
+
     try {
-        const doc = await db.collection('settings').doc('config').get();
-        if (doc.exists) {
-            const data = doc.data();
-            const key = data.apiKey || data.geminiApiKey;
-            if (key) {
-                geminiKey = key;
-                return res.json({ exists: true });
+        if (db) {
+            const doc = await db.collection('settings').doc('config').get();
+            if (doc.exists) {
+                const data = doc.data();
+                const key = data.apiKey || data.geminiApiKey;
+                if (key) {
+                    geminiKey = key;
+                    return res.json({ exists: true });
+                }
             }
         }
     } catch (e) { console.error(e); }
+
     res.json({ exists: false });
 });
 
 app.post('/api/save-key', async (req, res) => {
     const { key } = req.body;
     if (!key) return res.status(400).json({ error: "No key provided" });
+
     try {
-        await db.collection('settings').doc('config').set({ apiKey: key, geminiApiKey: key }, { merge: true });
+        if (db) {
+            await db.collection('settings').doc('config').set({ apiKey: key, geminiApiKey: key }, { merge: true });
+        }
         geminiKey = key;
         res.json({ success: true });
     } catch (e) {
@@ -77,123 +85,64 @@ app.post('/api/save-key', async (req, res) => {
     }
 });
 
-app.post('/api/start-bot', (req, res) => {
-    if (whatsappClient) return res.json({ message: "Already running" });
-    startWhatsApp();
-    res.json({ message: "Bot Initializing..." });
+app.post('/api/start-bot', async (req, res) => {
+    await connectToWhatsApp();
+    res.json({ message: "Starting..." });
 });
 
-// --- SOCKET CONNECTION ---
-io.on('connection', (socket) => {
-    console.log('UI Connected');
-    if (isClientReady) socket.emit('ready', 'System Online');
-    else if (qrCodeUrl) socket.emit('qr', qrCodeUrl);
-});
+// --- WHATSAPP CONNECTION (BAILEYS) ---
+async function connectToWhatsApp() {
+    // Saves session to 'auth_info' folder so you don't rescan every time
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
 
-// --- WHATSAPP LOGIC ---
-function startWhatsApp() {
-    console.log("Starting WhatsApp Client...");
+    sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: true, // Also prints to logs as backup
+        logger: pino({ level: 'silent' }), // Hide messy logs
+        browser: ["Temple AI", "Chrome", "1.0"]
+    });
 
-    // --- FIX 2: INTERNET CONNECTION (Solves "DNS Lookup Failed") ---
-    whatsappClient = new Client({
-        authStrategy: new LocalAuth({ dataPath: '/app/auth_info' }),
-        puppeteer: {
-            headless: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
-                '--no-first-run',
-                '--no-zygote',
-                '--disable-gpu',
-                '--ignore-certificate-errors',
-                '--dns-server=8.8.8.8', // <--- CRITICAL: Forces Google DNS
-                '--disable-ipv6'
-            ],
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH
+    // Handle Connection Events
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        if (qr) {
+            console.log("QR CODE RECEIVED");
+            // Convert QR string to Image Data URL for Frontend
+            qrcode.toDataURL(qr, (err, url) => {
+                if (!err) io.emit('qr', url);
+            });
+        }
+
+        if (connection === 'close') {
+            const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('Connection closed. Reconnecting?', shouldReconnect);
+            if (shouldReconnect) {
+                connectToWhatsApp();
+            } else {
+                io.emit('ready', "Session Ended. Please Restart.");
+            }
+        } else if (connection === 'open') {
+            console.log('OPENED CONNECTION');
+            io.emit('ready', "Temple AI Connected!");
         }
     });
 
-    whatsappClient.on('qr', (qr) => {
-        console.log("QR RECEIVED FROM WHATSAPP"); // Watch for this in logs
-        qrcode.toDataURL(qr, (err, url) => {
-            qrCodeUrl = url;
-            io.emit('qr', url);
-        });
-    });
+    sock.ev.on('creds.update', saveCreds);
 
-    whatsappClient.on('ready', () => {
-        console.log("WhatsApp Ready!");
-        isClientReady = true;
-        qrCodeUrl = null;
-        io.emit('ready', "Temple AI Connected Successfully");
-    });
+    // Listen for Messages
+    sock.ev.on('messages.upsert', async ({ messages }) => {
+        const msg = messages[0];
+        if (!msg.message) return;
+        if (msg.key.fromMe) return;
 
-    // Message Logic
-    whatsappClient.on('message', async msg => {
-        if (msg.fromMe) return;
+        console.log('New Message:', JSON.stringify(msg.message));
 
-        if (!geminiKey) return;
-
-        const contact = await msg.getContact();
-        const chat = await msg.getChat();
-
-        const historySnapshot = await db.collection('chats').doc(contact.number).collection('messages')
-            .orderBy('timestamp', 'desc').limit(10).get();
-
-        let historyContext = "";
-        historySnapshot.forEach(doc => {
-            const data = doc.data();
-            historyContext += `${data.sender}: ${data.text}\n`;
-        });
-
-        const genAI = new GoogleGenerativeAI(geminiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-        const prompt = `
-        You are Temple. You are replying to a WhatsApp message.
-        Here is your chat history with this person (${contact.pushname}):
-        ${historyContext}
-        
-        Current Message: "${msg.body}"
-        
-        Instructions:
-        - Mimic Temple's exact vibe from the history above.
-        - If the history shows slang/pidgin, use it. If it's formal, be formal.
-        - Keep it short and natural for WhatsApp.
-        - Do not sound like an AI assistant.
-        `;
-
-        try {
-            const result = await model.generateContent(prompt);
-            const response = result.response.text();
-
-            await chat.sendMessage(response);
-
-            await db.collection('chats').doc(contact.number).collection('messages').add({
-                text: msg.body,
-                sender: contact.pushname,
-                timestamp: new Date()
-            });
-            await db.collection('chats').doc(contact.number).collection('messages').add({
-                text: response,
-                sender: "Temple",
-                timestamp: new Date()
-            });
-
-        } catch (error) {
-            console.error("AI Error:", error);
-        }
-    });
-
-    whatsappClient.initialize().catch(err => {
-        console.error("CRITICAL INIT ERROR:", err);
+        // AI AND CRAWLER LOGIC WILL BE RE-INTEGRATED HERE
+        // For now, ensuring stable connection first.
     });
 }
 
-// Start Server
+// --- START SERVER ---
 const PORT = 7860;
-server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+server.listen(PORT, () => console.log(`Server on port ${PORT}`));
