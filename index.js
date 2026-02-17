@@ -11,12 +11,25 @@ const fs = require('fs');
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
-const serviceAccount = require('./firebase-key.json'); // You need to add this file
 
-// Initialize Firebase
-admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
-});
+// Initialize Firebase (Try Environment Secret first, then fallback to file)
+let serviceAccount;
+try {
+    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+        serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+        console.log("Firebase initialized from Environment Secret");
+    } else {
+        serviceAccount = require('./firebase-key.json');
+        console.log("Firebase initialized from firebase-key.json file");
+    }
+
+    admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+    });
+} catch (error) {
+    console.error("CRITICAL: Failed to initialize Firebase. Check your FIREBASE_SERVICE_ACCOUNT variable or firebase-key.json file.");
+    console.error(error);
+}
 const db = admin.firestore();
 
 // Initialize WhatsApp Client with Puppeteer settings for Docker
